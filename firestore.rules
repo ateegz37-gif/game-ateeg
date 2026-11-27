@@ -1,0 +1,377 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Safety Net: Default Deny Everything
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // =========================================================================
+    // Global Hardened Primitives
+    // =========================================================================
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 2 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isBootstrappedAdmin() {
+      return isVerifiedUser()
+        && request.auth.token.email is string
+        && request.auth.token.email == 'ateegz37@gmail.com';
+    }
+
+    function roomExists(roomId) {
+      return exists(/databases/$(database)/documents/rooms/$(roomId));
+    }
+
+    function isRoomAdmin(roomId) {
+      return isBootstrappedAdmin()
+        || (isVerifiedUser()
+          && roomExists(roomId)
+          && get(/databases/$(database)/documents/rooms/$(roomId)).data.ownerUid == request.auth.uid);
+    }
+
+    // =========================================================================
+    // Validation Blueprints (Called on BOTH create and update)
+    // =========================================================================
+    function isValidRoom(data, roomId) {
+      return data.keys().hasAll([
+          'roomId', 'roomCode', 'familyName', 'ownerUid', 'parentPin',
+          'rewardMode', 'currency', 'firstPrize', 'secondPrize', 'thirdPrize',
+          'pointsStep', 'cashPerStep', 'targetTrackPoints', 'seasonNumber',
+          'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'roomId', 'roomCode', 'familyName', 'ownerUid', 'parentPin',
+          'rewardMode', 'currency', 'firstPrize', 'secondPrize', 'thirdPrize',
+          'pointsStep', 'cashPerStep', 'targetTrackPoints', 'seasonNumber',
+          'roundStatus', 'roundNumber', 'minPlayersToStart', 'roundDurationSeconds',
+          'countdownEndAtMs', 'roundEndAtMs',
+          'createdAt', 'updatedAt'
+        ])
+        && data.roomId is string && data.roomId == roomId && isValidId(data.roomId) && data.roomId.size() <= 40
+        && data.roomCode is string && data.roomCode.size() >= 2 && data.roomCode.size() <= 24
+        && data.familyName is string && data.familyName.size() >= 2 && data.familyName.size() <= 60
+        && data.ownerUid is string && data.ownerUid.size() >= 1 && data.ownerUid.size() <= 128
+        && data.parentPin is string && data.parentPin.size() == 4 && data.parentPin.matches('^[0-9]{4}$')
+        && data.rewardMode is string && (data.rewardMode == 'podium' || data.rewardMode == 'points')
+        && data.currency is string && data.currency.size() >= 1 && data.currency.size() <= 20
+        && data.firstPrize is number && data.firstPrize >= 0 && data.firstPrize <= 10000000
+        && data.secondPrize is number && data.secondPrize >= 0 && data.secondPrize <= 10000000
+        && data.thirdPrize is number && data.thirdPrize >= 0 && data.thirdPrize <= 10000000
+        && data.pointsStep is number && data.pointsStep >= 1 && data.pointsStep <= 100000
+        && data.cashPerStep is number && data.cashPerStep >= 0 && data.cashPerStep <= 1000000
+        && data.targetTrackPoints is number && data.targetTrackPoints >= 100 && data.targetTrackPoints <= 1000000
+        && data.seasonNumber is number && data.seasonNumber >= 1 && data.seasonNumber <= 10000
+        && (!('roundStatus' in data) || (data.roundStatus is string && (data.roundStatus == 'lobby' || data.roundStatus == 'countdown' || data.roundStatus == 'playing' || data.roundStatus == 'results')))
+        && (!('roundNumber' in data) || (data.roundNumber is number && data.roundNumber >= 1 && data.roundNumber <= 100000))
+        && (!('minPlayersToStart' in data) || (data.minPlayersToStart is number && data.minPlayersToStart >= 1 && data.minPlayersToStart <= 10))
+        && (!('roundDurationSeconds' in data) || (data.roundDurationSeconds is number && data.roundDurationSeconds >= 20 && data.roundDurationSeconds <= 300))
+        && (!('countdownEndAtMs' in data) || (data.countdownEndAtMs is number && data.countdownEndAtMs >= 0))
+        && (!('roundEndAtMs' in data) || (data.roundEndAtMs is number && data.roundEndAtMs >= 0))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidPlayer(data, roomId, playerId) {
+      return data.keys().hasAll([
+          'id', 'roomId', 'ownerUid', 'name', 'character', 'level',
+          'points', 'roundsPlayed', 'totalCorrect', 'lastActiveMs',
+          'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'roomId', 'ownerUid', 'name', 'character', 'level',
+          'points', 'roundsPlayed', 'totalCorrect',
+          'currentRoundNumber', 'currentRoundPoints', 'currentRoundCorrect', 'readyForRound',
+          'lastActiveMs', 'createdAt', 'updatedAt'
+        ])
+        && data.id is string && data.id == playerId && isValidId(data.id) && data.id.size() <= 80
+        && data.roomId is string && data.roomId == roomId && isValidId(data.roomId) && data.roomId.size() <= 40
+        && data.ownerUid is string && data.ownerUid.size() >= 1 && data.ownerUid.size() <= 128
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 24
+        && data.character is string && data.character.size() >= 2 && data.character.size() <= 24
+        && data.level is number && (data.level == 1 || data.level == 2 || data.level == 3)
+        && data.points is number && data.points >= 0 && data.points <= 10000000
+        && data.roundsPlayed is number && data.roundsPlayed >= 0 && data.roundsPlayed <= 100000
+        && data.totalCorrect is number && data.totalCorrect >= 0 && data.totalCorrect <= 1000000
+        && (!('currentRoundNumber' in data) || (data.currentRoundNumber is number && data.currentRoundNumber >= 0 && data.currentRoundNumber <= 100000))
+        && (!('currentRoundPoints' in data) || (data.currentRoundPoints is number && data.currentRoundPoints >= 0 && data.currentRoundPoints <= 1000000))
+        && (!('currentRoundCorrect' in data) || (data.currentRoundCorrect is number && data.currentRoundCorrect >= 0 && data.currentRoundCorrect <= 1000))
+        && (!('readyForRound' in data) || (data.readyForRound is number && data.readyForRound >= 0 && data.readyForRound <= 100000))
+        && data.lastActiveMs is number && data.lastActiveMs >= 0
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidVoiceMessage(data, roomId, messageId) {
+      return data.keys().hasAll([
+          'id', 'roomId', 'senderUid', 'playerId', 'playerName',
+          'tone', 'phrase', 'mimeType', 'audioBase64', 'durationMs', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'roomId', 'senderUid', 'playerId', 'playerName',
+          'tone', 'phrase', 'mimeType', 'audioBase64', 'durationMs', 'createdAt'
+        ])
+        && data.id is string && data.id == messageId && isValidId(data.id) && data.id.size() <= 80
+        && data.roomId is string && data.roomId == roomId && isValidId(data.roomId) && data.roomId.size() <= 40
+        && data.senderUid is string && data.senderUid == request.auth.uid && data.senderUid.size() <= 128
+        && data.playerId is string && isValidId(data.playerId) && data.playerId.size() <= 80
+        && data.playerName is string && data.playerName.size() >= 1 && data.playerName.size() <= 24
+        && data.tone is string && (data.tone == 'normal' || data.tone == 'chipmunk' || data.tone == 'robot')
+        && data.phrase is string && data.phrase.size() >= 1 && data.phrase.size() <= 40
+        && data.mimeType is string && data.mimeType.size() >= 3 && data.mimeType.size() <= 60
+        && data.audioBase64 is string && data.audioBase64.size() >= 10 && data.audioBase64.size() <= 180000
+        && data.durationMs is number && data.durationMs >= 200 && data.durationMs <= 12000
+        && data.createdAt is timestamp;
+    }
+
+    function isValidCustomQuestion(data, roomId, questionId) {
+      return data.keys().hasAll([
+          'id', 'roomId', 'authorUid', 'category', 'level',
+          'prompt', 'options', 'correctIndex', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'roomId', 'authorUid', 'category', 'level',
+          'prompt', 'visualEmoji', 'options', 'correctIndex', 'fact', 'createdAt'
+        ])
+        && data.id is string && data.id == questionId && isValidId(data.id) && data.id.size() <= 80
+        && data.roomId is string && data.roomId == roomId && isValidId(data.roomId) && data.roomId.size() <= 40
+        && data.authorUid is string && data.authorUid == request.auth.uid && data.authorUid.size() <= 128
+        && data.category is string && (data.category == 'math' || data.category == 'english' || data.category == 'science' || data.category == 'islamic')
+        && data.level is number && (data.level == 1 || data.level == 2 || data.level == 3)
+        && data.prompt is string && data.prompt.size() >= 3 && data.prompt.size() <= 240
+        && (!('visualEmoji' in data) || (data.visualEmoji is string && data.visualEmoji.size() <= 16))
+        && (!('fact' in data) || (data.fact is string && data.fact.size() <= 240))
+        && data.options is list && data.options.size() == 4
+        && data.options[0] is string && data.options[0].size() >= 1 && data.options[0].size() <= 120
+        && data.options[1] is string && data.options[1].size() >= 1 && data.options[1].size() <= 120
+        && data.options[2] is string && data.options[2].size() >= 1 && data.options[2].size() <= 120
+        && data.options[3] is string && data.options[3].size() >= 1 && data.options[3].size() <= 120
+        && data.correctIndex is number && (data.correctIndex == 0 || data.correctIndex == 1 || data.correctIndex == 2 || data.correctIndex == 3)
+        && data.createdAt is timestamp;
+    }
+
+    function isValidChampionEntry(data, roomId, entryId) {
+      return data.keys().hasAll([
+          'id', 'roomId', 'awardedByUid', 'seasonNumber',
+          'dateIso', 'currency', 'rewardMode', 'winners', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'roomId', 'awardedByUid', 'seasonNumber',
+          'dateIso', 'currency', 'rewardMode', 'winners', 'createdAt'
+        ])
+        && data.id is string && data.id == entryId && isValidId(data.id) && data.id.size() <= 80
+        && data.roomId is string && data.roomId == roomId && isValidId(data.roomId) && data.roomId.size() <= 40
+        && data.awardedByUid is string && data.awardedByUid == request.auth.uid && data.awardedByUid.size() <= 128
+        && data.seasonNumber is number && data.seasonNumber >= 1 && data.seasonNumber <= 10000
+        && data.dateIso is string && data.dateIso.size() >= 10 && data.dateIso.size() <= 40
+        && data.currency is string && data.currency.size() >= 1 && data.currency.size() <= 20
+        && data.rewardMode is string && (data.rewardMode == 'podium' || data.rewardMode == 'points')
+        && data.winners is list && data.winners.size() >= 1 && data.winners.size() <= 3
+        && data.winners[0] is map
+        && data.createdAt is timestamp;
+    }
+
+    // =========================================================================
+    // Collection: /rooms/{roomId}
+    // =========================================================================
+    match /rooms/{roomId} {
+      // Single-document lookup by secret room code (listing all rooms is strictly forbidden!)
+      allow get: if isVerifiedUser() && isValidId(roomId);
+      allow list: if false;
+
+      allow create: if isVerifiedUser()
+        && isValidId(roomId)
+        && isValidRoom(incoming(), roomId)
+        && incoming().ownerUid == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isVerifiedUser()
+        && isValidId(roomId)
+        && isValidRoom(incoming(), roomId)
+        && incoming().roomId == existing().roomId
+        && incoming().ownerUid == existing().ownerUid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          // Action 1: Room Owner or Bootstrapped Parent Admin updates settings, PIN, rewards, match rules, or season
+          (
+            (isBootstrappedAdmin() || existing().ownerUid == request.auth.uid)
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'roomCode', 'familyName', 'parentPin', 'rewardMode', 'currency',
+              'firstPrize', 'secondPrize', 'thirdPrize', 'pointsStep',
+              'cashPerStep', 'targetTrackPoints', 'seasonNumber',
+              'roundStatus', 'roundNumber', 'minPlayersToStart', 'roundDurationSeconds',
+              'countdownEndAtMs', 'roundEndAtMs', 'updatedAt'
+            ])
+          )
+          // Action 2: Any verified participant in the room transitions synchronized live round lifecycle
+          || (
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'roundStatus', 'roundNumber', 'countdownEndAtMs', 'roundEndAtMs', 'updatedAt'
+            ])
+            && (
+              (!('roundNumber' in existing()) && (!('roundNumber' in incoming()) || incoming().roundNumber <= 2))
+              || (
+                ('roundNumber' in existing())
+                && ('roundNumber' in incoming())
+                && incoming().roundNumber >= existing().roundNumber
+                && incoming().roundNumber <= existing().roundNumber + 1
+              )
+            )
+          )
+        );
+
+      allow delete: if false;
+
+      // =======================================================================
+      // Subcollection: /rooms/{roomId}/players/{playerId}
+      // =======================================================================
+      match /players/{playerId} {
+        allow get: if isVerifiedUser() && isValidId(roomId) && isValidId(playerId) && roomExists(roomId);
+        allow list: if isVerifiedUser() && resource.data.roomId == roomId;
+
+        allow create: if isVerifiedUser()
+          && isValidId(roomId)
+          && isValidId(playerId)
+          && isValidPlayer(incoming(), roomId, playerId)
+          && incoming().ownerUid == request.auth.uid
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && roomExists(roomId);
+
+        allow update: if isVerifiedUser()
+          && isValidId(roomId)
+          && isValidId(playerId)
+          && isValidPlayer(incoming(), roomId, playerId)
+          && incoming().id == existing().id
+          && incoming().roomId == existing().roomId
+          && incoming().ownerUid == existing().ownerUid
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && roomExists(roomId)
+          && (
+            // Action 1: Player edits own name / character / level / ready status / heartbeat (points preserved)
+            (
+              existing().ownerUid == request.auth.uid
+              && incoming().diff(existing()).affectedKeys().hasOnly([
+                'name', 'character', 'level', 'readyForRound', 'lastActiveMs', 'updatedAt'
+              ])
+            )
+            // Action 2: Player earns live sprint quiz points & updates current round stats
+            || (
+              existing().ownerUid == request.auth.uid
+              && incoming().points >= existing().points
+              && incoming().diff(existing()).affectedKeys().hasOnly([
+                'points', 'roundsPlayed', 'totalCorrect',
+                'currentRoundNumber', 'currentRoundPoints', 'currentRoundCorrect',
+                'readyForRound', 'lastActiveMs', 'updatedAt'
+              ])
+            )
+            // Action 3: Room Admin / Parent edits player or resets points for new season
+            || (
+              isRoomAdmin(roomId)
+              && incoming().diff(existing()).affectedKeys().hasOnly([
+                'name', 'character', 'level', 'points', 'roundsPlayed', 'totalCorrect',
+                'currentRoundNumber', 'currentRoundPoints', 'currentRoundCorrect',
+                'readyForRound', 'lastActiveMs', 'updatedAt'
+              ])
+            )
+          );
+
+        allow delete: if isVerifiedUser()
+          && isValidId(roomId)
+          && isValidId(playerId)
+          && roomExists(roomId)
+          && (existing().ownerUid == request.auth.uid || isRoomAdmin(roomId));
+      }
+
+      // =======================================================================
+      // Subcollection: /rooms/{roomId}/voiceMessages/{messageId}
+      // =======================================================================
+      match /voiceMessages/{messageId} {
+        allow get: if isVerifiedUser() && isValidId(roomId) && isValidId(messageId) && roomExists(roomId);
+        allow list: if isVerifiedUser() && resource.data.roomId == roomId;
+
+        allow create: if isVerifiedUser()
+          && isValidId(roomId)
+          && isValidId(messageId)
+          && isValidVoiceMessage(incoming(), roomId, messageId)
+          && incoming().createdAt == request.time
+          && roomExists(roomId);
+
+        // Ephemeral voice messages are immutable once sent
+        allow update: if false;
+
+        // Auto-deleted by sender, admin, or after playback expiry for privacy
+        allow delete: if isVerifiedUser()
+          && isValidId(roomId)
+          && isValidId(messageId)
+          && roomExists(roomId)
+          && (
+            existing().senderUid == request.auth.uid
+            || isRoomAdmin(roomId)
+            || request.time > existing().createdAt + duration.value(8, 's')
+          );
+      }
+
+      // =======================================================================
+      // Subcollection: /rooms/{roomId}/customQuestions/{questionId}
+      // =======================================================================
+      match /customQuestions/{questionId} {
+        allow get: if isVerifiedUser() && isValidId(roomId) && isValidId(questionId) && roomExists(roomId);
+        allow list: if isVerifiedUser() && resource.data.roomId == roomId;
+
+        allow create: if isVerifiedUser()
+          && isValidId(roomId)
+          && isValidId(questionId)
+          && isValidCustomQuestion(incoming(), roomId, questionId)
+          && incoming().createdAt == request.time
+          && isRoomAdmin(roomId);
+
+        allow update: if false;
+
+        allow delete: if isVerifiedUser()
+          && isValidId(roomId)
+          && isValidId(questionId)
+          && isRoomAdmin(roomId);
+      }
+
+      // =======================================================================
+      // Subcollection: /rooms/{roomId}/champions/{entryId}
+      // =======================================================================
+      match /champions/{entryId} {
+        allow get: if isVerifiedUser() && isValidId(roomId) && isValidId(entryId) && roomExists(roomId);
+        allow list: if isVerifiedUser() && resource.data.roomId == roomId;
+
+        allow create: if isVerifiedUser()
+          && isValidId(roomId)
+          && isValidId(entryId)
+          && isValidChampionEntry(incoming(), roomId, entryId)
+          && incoming().createdAt == request.time
+          && isRoomAdmin(roomId);
+
+        allow update: if false;
+        allow delete: if false;
+      }
+    }
+  }
+}

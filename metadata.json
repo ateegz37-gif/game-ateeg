@@ -1,0 +1,6 @@
+{
+  "name": "تحدي أبطال العائلة — Family Champions",
+  "description": "لعبة تعليمية تفاعلية ومبهجة للأطفال باللغة العربية مع مضمار سباق متحرك، عجلة حظ، 120 سؤالاً، ميكروفون تشجيع مرح، ولوحة تحكم لولي الأمر.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

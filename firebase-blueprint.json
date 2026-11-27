@@ -1,0 +1,354 @@
+{
+  "entities": {
+    "FamilyRoom": {
+      "title": "FamilyRoom",
+      "description": "Configuration, synchronized live round state, and reward settings for an online Ateeg Family Champions room.",
+      "type": "object",
+      "properties": {
+        "roomId": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 40,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "roomCode": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 24
+        },
+        "familyName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 60
+        },
+        "ownerUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "parentPin": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 4,
+          "pattern": "^[0-9]{4}$"
+        },
+        "rewardMode": {
+          "type": "string",
+          "enum": ["podium", "points"]
+        },
+        "currency": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 20
+        },
+        "firstPrize": { "type": "number" },
+        "secondPrize": { "type": "number" },
+        "thirdPrize": { "type": "number" },
+        "pointsStep": { "type": "number" },
+        "cashPerStep": { "type": "number" },
+        "targetTrackPoints": { "type": "number" },
+        "seasonNumber": { "type": "number" },
+        "roundStatus": {
+          "type": "string",
+          "enum": ["lobby", "countdown", "playing", "results"]
+        },
+        "roundNumber": { "type": "number" },
+        "minPlayersToStart": { "type": "number" },
+        "roundDurationSeconds": { "type": "number" },
+        "countdownEndAtMs": { "type": "number" },
+        "roundEndAtMs": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "roomId",
+        "roomCode",
+        "familyName",
+        "ownerUid",
+        "parentPin",
+        "rewardMode",
+        "currency",
+        "firstPrize",
+        "secondPrize",
+        "thirdPrize",
+        "pointsStep",
+        "cashPerStep",
+        "targetTrackPoints",
+        "seasonNumber",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "RoomPlayer": {
+      "title": "RoomPlayer",
+      "description": "A child racing live inside a family room from their phone or tablet (up to 10 players).",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 80,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "roomId": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 40,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ownerUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 24
+        },
+        "character": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 24
+        },
+        "level": {
+          "type": "number",
+          "enum": [1, 2, 3]
+        },
+        "points": { "type": "number" },
+        "roundsPlayed": { "type": "number" },
+        "totalCorrect": { "type": "number" },
+        "currentRoundNumber": { "type": "number" },
+        "currentRoundPoints": { "type": "number" },
+        "currentRoundCorrect": { "type": "number" },
+        "readyForRound": { "type": "number" },
+        "lastActiveMs": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "id",
+        "roomId",
+        "ownerUid",
+        "name",
+        "character",
+        "level",
+        "points",
+        "roundsPlayed",
+        "totalCorrect",
+        "lastActiveMs",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "VoiceMessage": {
+      "title": "VoiceMessage",
+      "description": "Ephemeral 5-second Walkie-Talkie voice broadcast deleted automatically after playback.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 80,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "roomId": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 40,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "senderUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "playerId": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 80,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "playerName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 24
+        },
+        "tone": {
+          "type": "string",
+          "enum": ["normal", "chipmunk", "robot"]
+        },
+        "phrase": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "mimeType": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 60
+        },
+        "audioBase64": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 180000
+        },
+        "durationMs": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "id",
+        "roomId",
+        "senderUid",
+        "playerId",
+        "playerName",
+        "tone",
+        "phrase",
+        "mimeType",
+        "audioBase64",
+        "durationMs",
+        "createdAt"
+      ]
+    },
+    "CustomQuestion": {
+      "title": "CustomQuestion",
+      "description": "Parent-authored school lesson question synced across the family room.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 80,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "roomId": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 40,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "authorUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "category": {
+          "type": "string",
+          "enum": ["math", "english", "science", "islamic"]
+        },
+        "level": {
+          "type": "number",
+          "enum": [1, 2, 3]
+        },
+        "prompt": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 240
+        },
+        "visualEmoji": {
+          "type": "string",
+          "maxLength": 16
+        },
+        "options": {
+          "type": "array"
+        },
+        "correctIndex": {
+          "type": "number",
+          "enum": [0, 1, 2, 3]
+        },
+        "fact": {
+          "type": "string",
+          "maxLength": 240
+        },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "id",
+        "roomId",
+        "authorUid",
+        "category",
+        "level",
+        "prompt",
+        "options",
+        "correctIndex",
+        "createdAt"
+      ]
+    },
+    "ChampionEntry": {
+      "title": "ChampionEntry",
+      "description": "Archived season podium winners saved in Ateeg Hall of Champions.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 80,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "roomId": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 40,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "awardedByUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "seasonNumber": { "type": "number" },
+        "dateIso": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 40
+        },
+        "currency": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 20
+        },
+        "rewardMode": {
+          "type": "string",
+          "enum": ["podium", "points"]
+        },
+        "winners": {
+          "type": "array"
+        },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "id",
+        "roomId",
+        "awardedByUid",
+        "seasonNumber",
+        "dateIso",
+        "currency",
+        "rewardMode",
+        "winners",
+        "createdAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/rooms/{roomId}": {
+      "schema": { "$ref": "#/entities/FamilyRoom" },
+      "description": "Family room settings, secret code, PIN, synchronized live round state, and reward configuration."
+    },
+    "/rooms/{roomId}/players/{playerId}": {
+      "schema": { "$ref": "#/entities/RoomPlayer" },
+      "description": "Live connected children racing simultaneously in the room (up to 10)."
+    },
+    "/rooms/{roomId}/voiceMessages/{messageId}": {
+      "schema": { "$ref": "#/entities/VoiceMessage" },
+      "description": "Ephemeral 5-second Walkie-Talkie voice messages auto-deleted after playback."
+    },
+    "/rooms/{roomId}/customQuestions/{questionId}": {
+      "schema": { "$ref": "#/entities/CustomQuestion" },
+      "description": "Parent-authored custom curriculum questions for the room."
+    },
+    "/rooms/{roomId}/champions/{entryId}": {
+      "schema": { "$ref": "#/entities/ChampionEntry" },
+      "description": "Archived Ateeg Hall of Champions season winners."
+    }
+  }
+}
