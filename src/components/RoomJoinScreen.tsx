@@ -161,7 +161,7 @@ export function RoomJoinScreen({
                 <LogIn className="h-5 w-5" />
               )}
               <span>
-                {signingIn ? 'جاري التوجيه إلى مصادقة Google...' : 'الدخول بحساب Google للانضمام'}
+                {signingIn ? 'جاري تسجيل الدخول بحساب Google...' : 'الدخول بحساب Google للانضمام'}
               </span>
             </button>
           </div>

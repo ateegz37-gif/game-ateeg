@@ -11,36 +11,51 @@ import {
   User,
 } from 'firebase/auth';
 import { doc, getDocFromServer, getFirestore } from 'firebase/firestore';
-import appletFirebaseConfig from '../firebase-applet-config.json';
+
+function pickCleanConfigValue(envVal: unknown, fallback: string): string {
+  const cleaned = typeof envVal === 'string' ? envVal.trim() : '';
+  return cleaned.length > 0 ? cleaned : fallback.trim();
+}
 
 const env = import.meta.env;
 
 const firebaseConfig = {
-  apiKey: env.VITE_FIREBASE_API_KEY || appletFirebaseConfig.apiKey,
-  authDomain: env.VITE_FIREBASE_AUTH_DOMAIN || appletFirebaseConfig.authDomain,
-  projectId: env.VITE_FIREBASE_PROJECT_ID || appletFirebaseConfig.projectId,
-  storageBucket: env.VITE_FIREBASE_STORAGE_BUCKET || appletFirebaseConfig.storageBucket,
-  messagingSenderId:
-    env.VITE_FIREBASE_MESSAGING_SENDER_ID || appletFirebaseConfig.messagingSenderId,
-  appId: env.VITE_FIREBASE_APP_ID || appletFirebaseConfig.appId,
+  apiKey: pickCleanConfigValue(
+    env.VITE_FIREBASE_API_KEY,
+    'AIzaSyDpkW2JyTj_-WHlRbxB0_sG5ytjOFd2gxU'
+  ),
+  authDomain: pickCleanConfigValue(env.VITE_FIREBASE_AUTH_DOMAIN, 'ateeg-gam.firebaseapp.com'),
+  projectId: pickCleanConfigValue(env.VITE_FIREBASE_PROJECT_ID, 'ateeg-gam'),
+  storageBucket: pickCleanConfigValue(
+    env.VITE_FIREBASE_STORAGE_BUCKET,
+    'ateeg-gam.firebasestorage.app'
+  ),
+  messagingSenderId: pickCleanConfigValue(env.VITE_FIREBASE_MESSAGING_SENDER_ID, '221027412700'),
+  appId: pickCleanConfigValue(
+    env.VITE_FIREBASE_APP_ID,
+    '1:221027412700:web:40691ae26253395830e219'
+  ),
 };
 
-const firestoreDatabaseId =
-  env.VITE_FIREBASE_DATABASE_ID || appletFirebaseConfig.firestoreDatabaseId;
+const customDatabaseId =
+  typeof env.VITE_FIREBASE_DATABASE_ID === 'string' ? env.VITE_FIREBASE_DATABASE_ID.trim() : '';
 
 const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app, firestoreDatabaseId);
+export const db = customDatabaseId ? getFirestore(app, customDatabaseId) : getFirestore(app);
 export const auth = getAuth(app);
 
 setPersistence(auth, browserLocalPersistence).catch(() => {
-  // Some strict private browsers restrict localStorage persistence; Firebase falls back automatically
+  // Fallback automatically if strict private browser restricts localStorage
 });
 
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });
 
-const REDIRECT_PENDING_KEY = 'ateeg_google_redirect_pending_v1';
-const REDIRECT_COOKIE_FALLBACK_KEY = 'ateeg_google_redirect_cookie_fallback_v1';
+const POPUP_FALLBACK_ERROR_CODES = new Set([
+  'auth/popup-blocked',
+  'auth/cancelled-popup-request',
+  'auth/operation-not-supported-in-this-environment',
+]);
 
 export enum OperationType {
   CREATE = 'create',
@@ -107,132 +122,55 @@ export function formatFirebaseAuthError(error: unknown, contextArabic?: string):
   return contextArabic ? `${contextArabic} (${technical})` : `خطأ المصادقة (${technical})`;
 }
 
-function setSessionFlag(key: string, value: string): void {
-  try {
-    window.sessionStorage.setItem(key, value);
-  } catch {
-    // ignore restricted storage
-  }
-}
-
-function getSessionFlag(key: string): string | null {
-  try {
-    return window.sessionStorage.getItem(key);
-  } catch {
-    return null;
-  }
-}
-
-function clearSessionFlag(key: string): void {
-  try {
-    window.sessionStorage.removeItem(key);
-  } catch {
-    // ignore restricted storage
-  }
-}
-
 /**
- * Checks the returning Google Redirect authentication result BEFORE attaching onAuthStateChanged.
- * Includes automatic smart fallback to signInWithPopup if third-party cookie restrictions drop the redirect state.
+ * Captures any returning Google signInWithRedirect session on initial app load
+ * BEFORE attaching onAuthStateChanged so the login screen never flashes mistakenly.
  */
 export async function resolveGoogleRedirectAuth(): Promise<{
   user: User | null;
   errorMessage: string | null;
 }> {
-  const pendingTsRaw = getSessionFlag(REDIRECT_PENDING_KEY);
-  const hasRecentPendingRedirect =
-    pendingTsRaw !== null && Date.now() - Number(pendingTsRaw) < 5 * 60 * 1000;
-
   try {
     const result = await getRedirectResult(auth);
     if (result?.user) {
-      clearSessionFlag(REDIRECT_PENDING_KEY);
-      clearSessionFlag(REDIRECT_COOKIE_FALLBACK_KEY);
       return { user: result.user, errorMessage: null };
     }
-
-    if (hasRecentPendingRedirect && !auth.currentUser) {
-      // Redirect returned without a user (commonly caused by third-party cookie blocking / ITP)
-      clearSessionFlag(REDIRECT_PENDING_KEY);
-      setSessionFlag(REDIRECT_COOKIE_FALLBACK_KEY, '1');
-      try {
-        const popupCred = await signInWithPopup(auth, googleProvider);
-        clearSessionFlag(REDIRECT_COOKIE_FALLBACK_KEY);
-        return { user: popupCred.user, errorMessage: null };
-      } catch (popupErr) {
-        return {
-          user: null,
-          errorMessage: formatFirebaseAuthError(
-            popupErr,
-            'تعذر استكمال إعادة التوجيه بسبب قيود ملفات تعريف الارتباط (Third-party cookies)، واضغط زر الدخول مجدداً للمحاولة بالنافذة البديلة'
-          ),
-        };
-      }
-    }
-
-    clearSessionFlag(REDIRECT_PENDING_KEY);
     return { user: auth.currentUser, errorMessage: null };
-  } catch (redirectErr) {
-    clearSessionFlag(REDIRECT_PENDING_KEY);
-    setSessionFlag(REDIRECT_COOKIE_FALLBACK_KEY, '1');
-    try {
-      const popupCred = await signInWithPopup(auth, googleProvider);
-      clearSessionFlag(REDIRECT_COOKIE_FALLBACK_KEY);
-      return { user: popupCred.user, errorMessage: null };
-    } catch (popupErr) {
-      const redirectCode =
-        typeof (redirectErr as { code?: unknown })?.code === 'string'
-          ? (redirectErr as { code: string }).code
-          : '';
-      const primaryErr = redirectCode ? redirectErr : popupErr;
-      return {
-        user: null,
-        errorMessage: formatFirebaseAuthError(primaryErr, 'فشل إتمام تسجيل الدخول عبر Google'),
-      };
-    }
+  } catch (err) {
+    return {
+      user: null,
+      errorMessage: formatFirebaseAuthError(err, 'تعذر إكمال العودة من مصادقة Google'),
+    };
   }
 }
 
 /**
- * Primary Google Sign-In using signInWithRedirect (mobile & In-App Browser friendly),
- * with automatic fallback to signInWithPopup if redirect fails or third-party cookies blocked a previous redirect.
+ * Google Sign-In:
+ * 1. Uses fast signInWithPopup first in standard browsers.
+ * 2. Automatically switches to signInWithRedirect in the same click if popup is blocked
+ *    or unsupported (auth/popup-blocked, auth/cancelled-popup-request,
+ *    auth/operation-not-supported-in-this-environment).
  */
 export async function signInWithGoogle(): Promise<User | null> {
-  const shouldPreferPopupFallback = getSessionFlag(REDIRECT_COOKIE_FALLBACK_KEY) === '1';
-
-  if (shouldPreferPopupFallback) {
-    try {
-      const cred = await signInWithPopup(auth, googleProvider);
-      clearSessionFlag(REDIRECT_COOKIE_FALLBACK_KEY);
-      return cred.user;
-    } catch (popupErr) {
-      // Clear fallback flag so user can also retry redirect if popup was blocked
-      clearSessionFlag(REDIRECT_COOKIE_FALLBACK_KEY);
-      throw popupErr;
-    }
-  }
-
   try {
-    setSessionFlag(REDIRECT_PENDING_KEY, String(Date.now()));
-    await signInWithRedirect(auth, googleProvider);
-    // Browser will navigate away to Google OAuth
-    return null;
-  } catch (redirectErr) {
-    clearSessionFlag(REDIRECT_PENDING_KEY);
-    // Smart fallback to signInWithPopup if redirect is rejected (e.g. iframe / cookie restrictions)
-    try {
-      const cred = await signInWithPopup(auth, googleProvider);
-      return cred.user;
-    } catch (popupErr) {
-      const errObj = popupErr as { code?: string } | null;
-      throw errObj?.code ? popupErr : redirectErr;
+    const cred = await signInWithPopup(auth, googleProvider);
+    return cred.user;
+  } catch (popupErr) {
+    const code =
+      typeof (popupErr as { code?: unknown })?.code === 'string'
+        ? (popupErr as { code: string }).code
+        : '';
+
+    if (POPUP_FALLBACK_ERROR_CODES.has(code)) {
+      await signInWithRedirect(auth, googleProvider);
+      return null;
     }
+
+    throw popupErr;
   }
 }
 
 export async function signOutUser(): Promise<void> {
-  clearSessionFlag(REDIRECT_PENDING_KEY);
-  clearSessionFlag(REDIRECT_COOKIE_FALLBACK_KEY);
   await signOut(auth);
 }
 
