@@ -1,20 +1,46 @@
 import { initializeApp } from 'firebase/app';
 import {
+  browserLocalPersistence,
   getAuth,
+  getRedirectResult,
   GoogleAuthProvider,
+  setPersistence,
   signInWithPopup,
+  signInWithRedirect,
   signOut,
   User,
 } from 'firebase/auth';
 import { doc, getDocFromServer, getFirestore } from 'firebase/firestore';
-import firebaseConfig from '../firebase-applet-config.json';
+import appletFirebaseConfig from '../firebase-applet-config.json';
+
+const env = import.meta.env;
+
+const firebaseConfig = {
+  apiKey: env.VITE_FIREBASE_API_KEY || appletFirebaseConfig.apiKey,
+  authDomain: env.VITE_FIREBASE_AUTH_DOMAIN || appletFirebaseConfig.authDomain,
+  projectId: env.VITE_FIREBASE_PROJECT_ID || appletFirebaseConfig.projectId,
+  storageBucket: env.VITE_FIREBASE_STORAGE_BUCKET || appletFirebaseConfig.storageBucket,
+  messagingSenderId:
+    env.VITE_FIREBASE_MESSAGING_SENDER_ID || appletFirebaseConfig.messagingSenderId,
+  appId: env.VITE_FIREBASE_APP_ID || appletFirebaseConfig.appId,
+};
+
+const firestoreDatabaseId =
+  env.VITE_FIREBASE_DATABASE_ID || appletFirebaseConfig.firestoreDatabaseId;
 
 const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+export const db = getFirestore(app, firestoreDatabaseId);
 export const auth = getAuth(app);
 
-const googleProvider = new GoogleAuthProvider();
+setPersistence(auth, browserLocalPersistence).catch(() => {
+  // Some strict private browsers restrict localStorage persistence; Firebase falls back automatically
+});
+
+export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });
+
+const REDIRECT_PENDING_KEY = 'ateeg_google_redirect_pending_v1';
+const REDIRECT_COOKIE_FALLBACK_KEY = 'ateeg_google_redirect_cookie_fallback_v1';
 
 export enum OperationType {
   CREATE = 'create',
@@ -68,12 +94,145 @@ export function handleFirestoreError(
   throw new Error(JSON.stringify(errInfo));
 }
 
-export async function signInWithGoogle(): Promise<User> {
-  const cred = await signInWithPopup(auth, googleProvider);
-  return cred.user;
+export function formatFirebaseAuthError(error: unknown, contextArabic?: string): string {
+  const err = error as { code?: unknown; message?: unknown } | null;
+  const code = typeof err?.code === 'string' && err.code ? err.code : 'auth/unknown-error';
+  const message =
+    typeof err?.message === 'string' && err.message
+      ? err.message
+      : error instanceof Error
+      ? error.message
+      : String(error);
+  const technical = `${code}: ${message}`;
+  return contextArabic ? `${contextArabic} (${technical})` : `خطأ المصادقة (${technical})`;
+}
+
+function setSessionFlag(key: string, value: string): void {
+  try {
+    window.sessionStorage.setItem(key, value);
+  } catch {
+    // ignore restricted storage
+  }
+}
+
+function getSessionFlag(key: string): string | null {
+  try {
+    return window.sessionStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function clearSessionFlag(key: string): void {
+  try {
+    window.sessionStorage.removeItem(key);
+  } catch {
+    // ignore restricted storage
+  }
+}
+
+/**
+ * Checks the returning Google Redirect authentication result BEFORE attaching onAuthStateChanged.
+ * Includes automatic smart fallback to signInWithPopup if third-party cookie restrictions drop the redirect state.
+ */
+export async function resolveGoogleRedirectAuth(): Promise<{
+  user: User | null;
+  errorMessage: string | null;
+}> {
+  const pendingTsRaw = getSessionFlag(REDIRECT_PENDING_KEY);
+  const hasRecentPendingRedirect =
+    pendingTsRaw !== null && Date.now() - Number(pendingTsRaw) < 5 * 60 * 1000;
+
+  try {
+    const result = await getRedirectResult(auth);
+    if (result?.user) {
+      clearSessionFlag(REDIRECT_PENDING_KEY);
+      clearSessionFlag(REDIRECT_COOKIE_FALLBACK_KEY);
+      return { user: result.user, errorMessage: null };
+    }
+
+    if (hasRecentPendingRedirect && !auth.currentUser) {
+      // Redirect returned without a user (commonly caused by third-party cookie blocking / ITP)
+      clearSessionFlag(REDIRECT_PENDING_KEY);
+      setSessionFlag(REDIRECT_COOKIE_FALLBACK_KEY, '1');
+      try {
+        const popupCred = await signInWithPopup(auth, googleProvider);
+        clearSessionFlag(REDIRECT_COOKIE_FALLBACK_KEY);
+        return { user: popupCred.user, errorMessage: null };
+      } catch (popupErr) {
+        return {
+          user: null,
+          errorMessage: formatFirebaseAuthError(
+            popupErr,
+            'تعذر استكمال إعادة التوجيه بسبب قيود ملفات تعريف الارتباط (Third-party cookies)، واضغط زر الدخول مجدداً للمحاولة بالنافذة البديلة'
+          ),
+        };
+      }
+    }
+
+    clearSessionFlag(REDIRECT_PENDING_KEY);
+    return { user: auth.currentUser, errorMessage: null };
+  } catch (redirectErr) {
+    clearSessionFlag(REDIRECT_PENDING_KEY);
+    setSessionFlag(REDIRECT_COOKIE_FALLBACK_KEY, '1');
+    try {
+      const popupCred = await signInWithPopup(auth, googleProvider);
+      clearSessionFlag(REDIRECT_COOKIE_FALLBACK_KEY);
+      return { user: popupCred.user, errorMessage: null };
+    } catch (popupErr) {
+      const redirectCode =
+        typeof (redirectErr as { code?: unknown })?.code === 'string'
+          ? (redirectErr as { code: string }).code
+          : '';
+      const primaryErr = redirectCode ? redirectErr : popupErr;
+      return {
+        user: null,
+        errorMessage: formatFirebaseAuthError(primaryErr, 'فشل إتمام تسجيل الدخول عبر Google'),
+      };
+    }
+  }
+}
+
+/**
+ * Primary Google Sign-In using signInWithRedirect (mobile & In-App Browser friendly),
+ * with automatic fallback to signInWithPopup if redirect fails or third-party cookies blocked a previous redirect.
+ */
+export async function signInWithGoogle(): Promise<User | null> {
+  const shouldPreferPopupFallback = getSessionFlag(REDIRECT_COOKIE_FALLBACK_KEY) === '1';
+
+  if (shouldPreferPopupFallback) {
+    try {
+      const cred = await signInWithPopup(auth, googleProvider);
+      clearSessionFlag(REDIRECT_COOKIE_FALLBACK_KEY);
+      return cred.user;
+    } catch (popupErr) {
+      // Clear fallback flag so user can also retry redirect if popup was blocked
+      clearSessionFlag(REDIRECT_COOKIE_FALLBACK_KEY);
+      throw popupErr;
+    }
+  }
+
+  try {
+    setSessionFlag(REDIRECT_PENDING_KEY, String(Date.now()));
+    await signInWithRedirect(auth, googleProvider);
+    // Browser will navigate away to Google OAuth
+    return null;
+  } catch (redirectErr) {
+    clearSessionFlag(REDIRECT_PENDING_KEY);
+    // Smart fallback to signInWithPopup if redirect is rejected (e.g. iframe / cookie restrictions)
+    try {
+      const cred = await signInWithPopup(auth, googleProvider);
+      return cred.user;
+    } catch (popupErr) {
+      const errObj = popupErr as { code?: string } | null;
+      throw errObj?.code ? popupErr : redirectErr;
+    }
+  }
 }
 
 export async function signOutUser(): Promise<void> {
+  clearSessionFlag(REDIRECT_PENDING_KEY);
+  clearSessionFlag(REDIRECT_COOKIE_FALLBACK_KEY);
   await signOut(auth);
 }
 

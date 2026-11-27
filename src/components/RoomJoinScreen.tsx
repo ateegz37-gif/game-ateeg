@@ -115,11 +115,16 @@ export function RoomJoinScreen({
           </p>
         </div>
 
-        {/* Auth Loading State */}
+        {/* Auth Loading State (active during initial check & Google Redirect return) */}
         {authLoading ? (
           <div className="mt-8 flex flex-col items-center justify-center gap-3 py-8 text-slate-600">
-            <Loader2 className="h-8 w-8 animate-spin text-sky-600" />
-            <span className="font-display text-sm font-bold">جاري الاتصال بغرفة العائلة...</span>
+            <Loader2 className="h-9 w-9 animate-spin text-sky-600" />
+            <span className="font-display text-sm sm:text-base font-extrabold text-slate-800">
+              جاري التحقق من تسجيل الدخول عبر Google...
+            </span>
+            <span className="text-xs font-medium text-slate-500">
+              يرجى الانتظار لحظة حتى يكتمل الاتصال بحسابك
+            </span>
           </div>
         ) : !user ? (
           /* Step 1: Google Sign-In Gate */
@@ -138,9 +143,9 @@ export function RoomJoinScreen({
             </div>
 
             {errorMsg && (
-              <div className="flex items-center justify-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-xs font-bold text-rose-700">
-                <AlertCircle className="h-4 w-4 shrink-0" />
-                <span>{errorMsg}</span>
+              <div className="flex items-start justify-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-right text-xs font-bold text-rose-700 break-words">
+                <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                <span className="leading-relaxed">{errorMsg}</span>
               </div>
             )}
 
@@ -155,7 +160,9 @@ export function RoomJoinScreen({
               ) : (
                 <LogIn className="h-5 w-5" />
               )}
-              <span>{signingIn ? 'جاري فتح نافذة Google...' : 'الدخول بحساب Google للانضمام'}</span>
+              <span>
+                {signingIn ? 'جاري التوجيه إلى مصادقة Google...' : 'الدخول بحساب Google للانضمام'}
+              </span>
             </button>
           </div>
         ) : (

@@ -23,7 +23,13 @@ import {
   saveMuted,
   sortPlayersByRank,
 } from './utils/storage';
-import { auth, signInWithGoogle, signOutUser } from './firebase';
+import {
+  auth,
+  formatFirebaseAuthError,
+  resolveGoogleRedirectAuth,
+  signInWithGoogle,
+  signOutUser,
+} from './firebase';
 import {
   addRoomCustomQuestion,
   awardAndResetRoomSeason,
@@ -147,19 +153,42 @@ export default function App() {
     saveMuted(muted);
   }, [muted]);
 
-  // Listen to Firebase Google Authentication state
+  // Resolve Google Redirect result BEFORE checking onAuthStateChanged (keeps Loading state active)
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (firebaseUser) => {
-      setUser(firebaseUser);
-      setAuthLoading(false);
-      if (!firebaseUser) {
-        setRoomId(null);
-        setRoom(null);
-        setPlayers([]);
-        setView('join');
+    let mounted = true;
+    let unsubAuth: (() => void) | null = null;
+
+    const initFirebaseAuth = async () => {
+      setAuthLoading(true);
+      const { user: redirectUser, errorMessage } = await resolveGoogleRedirectAuth();
+      if (!mounted) return;
+
+      if (redirectUser) {
+        setUser(redirectUser);
+        setJoinError(null);
+      } else if (errorMessage) {
+        setJoinError(errorMessage);
       }
-    });
-    return unsub;
+
+      unsubAuth = onAuthStateChanged(auth, (firebaseUser) => {
+        if (!mounted) return;
+        setUser(firebaseUser);
+        setAuthLoading(false);
+        if (!firebaseUser) {
+          setRoomId(null);
+          setRoom(null);
+          setPlayers([]);
+          setView('join');
+        }
+      });
+    };
+
+    initFirebaseAuth();
+
+    return () => {
+      mounted = false;
+      if (unsubAuth) unsubAuth();
+    };
   }, []);
 
   // Attach real-time Firestore listeners ONLY when signed in & joined a room
@@ -431,8 +460,8 @@ export default function App() {
     setJoinError(null);
     try {
       await signInWithGoogle();
-    } catch {
-      setJoinError('تعذر إتمام تسجيل الدخول عبر Google. يرجى السماح بالنافذة المنبثقة والمحاولة مجدداً.');
+    } catch (err) {
+      setJoinError(formatFirebaseAuthError(err, 'تعذر إتمام تسجيل الدخول عبر Google'));
     }
   };
 
